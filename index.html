@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>云端工具箱 | Netlify DB</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box;font-family:system-ui,sans-serif;transition:all .2s}
+    :root{--bg:#111827;--card:#1f2937;--text:#fff;--accent:#4f46e5;--input:#374151}
+    [dark="true"]{--bg:#f9fafb;--card:#ffffff;--text:#111827;--input:#f3f4f6}
+    body{background:var(--bg);color:var(--text);padding:20px;display:flex;flex-wrap:wrap;gap:16px;justify-content:center}
+    .box{background:var(--card);border-radius:18px;padding:20px;width:100%;max-width:380px;box-shadow:0 10px 30px #0003}
+    .box.wide{max-width:780px}
+    h3{margin-bottom:14px;font-size:16px;display:flex;align-items:center;gap:8px}
+    input,textarea,button{width:100%;padding:10px 14px;border-radius:10px;border:none;outline:none;background:var(--input);color:var(--text);margin:6px 0}
+    button{background:var(--accent);font-weight:bold;cursor:pointer}
+    button:hover{transform:translateY(-2px)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .tip{font-size:12px;color:#888;margin-top:6px}
+    .dark-toggle{position:fixed;top:20px;right:20px;width:44px;height:44px;border-radius:50%;background:var(--card);display:grid;place-items:center;cursor:pointer;z-index:10}
+    #preview{max-width:100%;border-radius:12px;margin:10px 0;display:none}
+    .item{padding:10px;background:#0002;border-radius:10px;margin:6px 0}
+    .empty{color:#888;text-align:center;padding:10px}
+    .auth-box{position:fixed;inset:0;background:var(--bg);display:grid;place-items:center;z-index:999}
+    .user-info{position:fixed;top:20px;left:20px;background:var(--card);padding:8px 12px;border-radius:12px;display:flex;align-items:center;gap:8px}
+    #logout{padding:6px 10px;font-size:12px}
+  </style>
+</head>
+<body>
+
+<div class="dark-toggle" onclick="toggleDark()">🌙</div>
+<div class="user-info" id="userInfo" style="display:none">
+  <span id="username"></span>
+  <button id="logout" onclick="logout()">退出</button>
+</div>
+
+<div class="auth-box" id="authBox">
+  <div class="box">
+    <h3>🔐 用户登录</h3>
+    <input id="user" placeholder="用户名">
+    <input id="pwd" type="password" placeholder="密码">
+    <button onclick="login()">登录</button>
+    <button onclick="register()" style="background:#6b7280">注册</button>
+  </div>
+</div>
+
+<div id="app" style="display:none; width:100%; justify-content:center; gap:16px; flex-wrap:wrap">
+<div class="box">
+  <h3>✅ 每日打卡</h3>
+  <button id="checkBtn" onclick="checkIn()">今日打卡</button>
+  <div class="tip" id="checkTip"></div>
+</div>
+
+<div class="box">
+  <h3>📝 备忘录</h3>
+  <input id="noteInput" placeholder="输入内容...">
+  <button onclick="addNote()">保存</button>
+  <div id="noteList"></div>
+</div>
+
+<div class="box">
+  <h3>📄 文本处理</h3>
+  <textarea rows="3" id="textInput"></textarea>
+  <div class="grid">
+    <button onclick="countWords()">字数统计</button><button onclick="toUpper()">转大写</button>
+    <button onclick="md5()">MD5</button><button onclick="trim()">去空格</button>
+  </div>
+  <div class="tip" id="textResult"></div>
+</div>
+
+<div class="box">
+  <h3>🔐 编码解码</h3>
+  <input id="codeInput">
+  <div class="grid">
+    <button onclick="b64en()">Base64编码</button><button onclick="b64de()">解码</button>
+    <button onclick="urlEn()">URL编码</button><button onclick="urlDe()">解码</button>
+  </div>
+  <div class="tip" id="codeResult"></div>
+</div>
+
+<div class="box wide">
+  <h3>🖼️ 图片工具</h3>
+  <input type="file" id="imgInput" accept="image/*">
+  <img id="preview">
+  <div class="grid">
+    <button onclick="downloadImg()">下载</button>
+    <button onclick="clearImg()">清空</button>
+  </div>
+</div>
+</div>
+
+<script>
+let token = localStorage.getItem('token')||''
+const today = new Date().toLocaleDateString()
+
+if(token){
+  document.getElementById('authBox').style.display='none'
+  document.getElementById('app').style.display='flex'
+  document.getElementById('userInfo').style.display='flex'
+  loadData()
+}
+
+async function login(){
+  const u = document.getElementById('user').value
+  const p = document.getElementById('pwd').value
+  const r = await fetch('/.netlify/functions/auth',{
+    method:'POST', body:JSON.stringify({action:'login',u,p})
+  })
+  const d = await r.json()
+  if(d.token){
+    token = d.token
+    localStorage.setItem('token',token)
+    location.reload()
+  }else alert('登录失败')
+}
+
+async function register(){
+  const u = document.getElementById('user').value
+  const p = document.getElementById('pwd').value
+  const r = await fetch('/.netlify/functions/auth',{
+    method:'POST', body:JSON.stringify({action:'reg',u,p})
+  })
+  const d = await r.json()
+  alert(d.ok?'注册成功':'失败')
+}
+
+function logout(){
+  localStorage.removeItem('token')
+  location.reload()
+}
+
+async function loadData(){
+  const r = await fetch('/.netlify/functions/data',{headers:{token}})
+  const d = await r.json()
+  renderCheck(d.checkToday)
+  renderNotes(d.notes||[])
+}
+
+async function checkIn(){
+  await fetch('/.netlify/functions/data',{
+    method:'POST', headers:{token},
+    body:JSON.stringify({type:'check',date:today})
+  })
+  loadData()
+}
+
+async function addNote(){
+  const t = document.getElementById('noteInput').value.trim()
+  if(!t)return
+  await fetch('/.netlify/functions/data',{
+    method:'POST', headers:{token},
+    body:JSON.stringify({type:'note',text:t,time:new Date().toLocaleString()})
+  })
+  document.getElementById('noteInput').value=''
+  loadData()
+}
+
+function renderCheck(c){
+  const b = document.getElementById('checkBtn')
+  const t = document.getElementById('checkTip')
+  if(c){ b.innerText='✅ 已打卡'; b.style.background='#10b981'; t.innerText='今日已完成' }
+  else { b.innerText='✅ 今日打卡'; t.innerText='未打卡' }
+}
+
+function renderNotes(list){
+  const dom = document.getElementById('noteList')
+  if(!list.length){ dom.innerHTML='<div class="empty">暂无记录</div>'; return }
+  dom.innerHTML = list.map(i=>`<div class="item">${i.text}<br><small>${i.time}</small></div>`).join('')
+}
+
+function toggleDark(){document.body.setAttribute('dark',document.body.getAttribute('dark')!=='true')}
+function countWords(){const v=document.getElementById('textInput').value;document.getElementById('textResult').innerText='字数：'+v.length}
+function toUpper(){document.getElementById('textInput').value=document.getElementById('textInput').value.toUpperCase()}
+function trim(){document.getElementById('textInput').value=document.getElementById('textInput').value.trim()}
+function md5(){let s=document.getElementById('textInput').value,t=0;for(let i=0;i<s.length;i++)t+=s.charCodeAt(i);document.getElementById('textResult').innerText='MD5：'+t.toString(16)}
+function b64en(){document.getElementById('codeResult').innerText=btoa(document.getElementById('codeInput').value)}
+function b64de(){document.getElementById('codeResult').innerText=atob(document.getElementById('codeInput').value)}
+function urlEn(){document.getElementById('codeResult').innerText=encodeURIComponent(document.getElementById('codeInput').value)}
+function urlDe(){document.getElementById('codeResult').innerText=decodeURIComponent(document.getElementById('codeInput').value)}
+document.getElementById('imgInput').onchange=e=>{const f=e.target.files[0];if(!f)return;const u=URL.createObjectURL(f);document.getElementById('preview').src=u;document.getElementById('preview').style.display='block'}
+function downloadImg(){const a=document.createElement('a');a.href=document.getElementById('preview').src;a.download='img.png';a.click()}
+function clearImg(){document.getElementById('preview').src='';document.getElementById('preview').style.display='none';document.getElementById('imgInput').value=''}
+</script>
+</body>
+</html>
